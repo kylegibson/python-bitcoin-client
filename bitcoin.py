@@ -3,6 +3,7 @@
 #import readline
 import urllib2
 import asyncore
+import asynchat
 import socket 
 import signal
 import logging
@@ -11,8 +12,6 @@ import struct
 import base58
 import random
 import time
-
-from connection import Connection
 
 CLIENT_ONLY = True
 
@@ -33,8 +32,7 @@ VERSION = 32100
 LAST_BLOCK = 0
 GENESIS_BLOCK_HASH = 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
 
-#DNS_SEED_ADDRESS = ["bitseed.xf2.org", "bitseed.bitcoin.org.uk"]
-DNS_SEED_ADDRESS = ["localhost"]
+DNS_SEED_ADDRESS = ["bitseed.xf2.org", "bitseed.bitcoin.org.uk"]
 LOGFILE = "node.log"
 LOGLEVEL =  logging.DEBUG
 
@@ -42,14 +40,35 @@ LOCAL_SERVICES = 0
 if not CLIENT_ONLY:
 	LOCAL_SERVICES += NODE_NETWORK
 
+class BConnection(asynchat.async_chat):
+	def __init__(self, network, services, addr):
+		asynchat.async_chat.__init__(self)
+		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.connect(addr)
+		self.addr = addr
+		self.network = network
+		self.services = services
+		self.incoming_data = ""
+		self.set_incoming_format()
+		self.push_version()
+		self.incoming_handler = None
+		self.incoming_handlers = {
+			"version" : self.pop_version,
+			"verack" : self.pop_verack,
+		}
 
-class BString:
-	def __init__(self, s = None):
-		self.string = s
+	def unpack_incoming_data(self):
+		return struct.unpack(self.incoming_format, self.incoming_data)
 
-	def pack(self, s = None):
-		if not s:
-			s = self.string
+	def set_incoming_format(self, format="<L12sL"):
+		self.incoming_format = format
+		size = struct.calcsize(format)
+		self.set_terminator(size)
+
+	def collect_incoming_data(self, data):
+		self.incoming_data += data
+
+	def pack_string(self, s):
 		l = len(s)
 		f = 0
 		if l < 253:
@@ -62,7 +81,7 @@ class BString:
 			f = chr(255) + struct.pack("<Q", l)
 		return f + s
 
-	def unpack(self, data):
+	def unpack_string(self, data):
 		(f,) = struct.unpack("<B", data[0])
 		data = data[1:]
 		if f == 253:
@@ -74,104 +93,75 @@ class BString:
 		elif f == 255:
 			(l,) = struct.unpack("<Q", data[:8])
 			data = data[8:]
-		return f.read(l)
+		return data
 
-class BAddress:
-	def __init__(self, services, ip, port):
-		self.services = services
-		self.ip = ip
-		self.port = port
-	
-	def pack(self):
-		r = struct.pack("<Q", self.services)
-		r += struct.pack("!10s2s4sH", 
-				"", "\xff" * 2, socket.inet_aton(self.ip), self.port)
-		return r
+	def pack_address(self, addr, port):
+		data = struct.pack("<Q", self.services)
+		data += struct.pack("!10s2s4sH", "", "\xff" * 2, socket.inet_aton(addr), port)
+		return data
 
-class BPacketHeader:
-	def __init__(self, network, packet):
-		self.network = network
-		self.packet = packet
-		self.checksum = 0
-	def response(self):
-		return self
-	def pack(self):
-		payload = self.packet.pack()
-		f = "<L12sL"
-		parts = [self.network, self.packet.command, len(payload)]
-		if self.packet.command != "version":
-			f.append("L")
-			h = base58.sha_256(base58.sha_256(payload))
-			parts.append(h[:4])
-		return struct.pack(f, *parts) + payload
-	def unpack(self):
-		pass
-
-class BPacketVersion:
-	def __init__(self, services, remote_address):
-		self.command = "version"
-		self.services = services
-		self.remote_address = remote_address
-	def pack(self):
-		remote = BAddress(self.services, self.remote_address, DEFAULT_PORT).pack()
-		local = BAddress(self.services, LOCAL_ADDRESS, DEFAULT_PORT).pack()
-		return struct.pack("<iQQ26s26sQxL",
-			VERSION, self.services, int(time.time()),
-			remote, local, LOCAL_NONCE, LAST_BLOCK)
-	def unpack(self):
-		pass
-
-class BConnection(Connection):
-	def __init__(self, network, services, addr):
-		Connection.__init__(self, addr)
-		self.network = network
-		self.services = services
-		self.responses = []
-
-	def push_expect(response):
-		self.responses.append(response)
-
-	def push_packet(self, packet):
-		header = BPacketHeader(self.network, packet)
-		data = header.pack()
-		logging.debug("packet: %s (%s) %s", packet.command, len(data), data.encode("hex_codec"))
+	def push_packet(self, command, data):
+		header = struct.pack("<L12sL", self.network, command, len(data))
+		if command != "version":
+			h = base58.sha_256(base58.sha_256(data))
+			checksum = h[:4]
+			header += struct.pack("<L", checksum)
+		self.push(header)
+		logging.debug("header: %s (%s) %s", command, len(header), header.encode("hex_codec"))
 		self.push(data)
-		self.push_expect(header.response())
+		logging.debug("packet: (%s) %s", len(data), data.encode("hex_codec"))
+
+	def push_version(self):
+		remote = self.pack_address(*self.addr)
+		local = self.pack_address(LOCAL_ADDRESS, DEFAULT_PORT)
+		data = struct.pack("<iQQ26s26sQxL", VERSION, self.services, int(time.time()),
+				remote, local, LOCAL_NONCE, LAST_BLOCK)
+		self.push_packet("version", data)
+	
 
 	def handle_connect(self):
-		logging.debug("connecting to node %s",self.addr)
-		version = BPacketVersion(self.services, self.addr[0])
-		self.push_packet(version)
+		logging.debug("connected to node %s", self.addr)
 
-	def handle_read(self):
-		if not Connection.handle_read(self):
-			return False
+	def found_terminator(self):
+		data = self.incoming_data
+		#logging.debug("received packet %s %s", len(data), data.encode("hex_codec"))
+		if callable(self.incoming_handler):
+			if not self.incoming_handler(data):
+				self.incoming_data = ""
+				self.set_incoming_format()
+				self.incoming_handler = None
+		else:
+			network, command, paylen = self.unpack_incoming_data()
+			if network != self.network:
+				logging.error("received garbage from %s", connection.addr)
+				self.close()
+				return
+			command = command.strip('\0')
+			handler = self.incoming_handlers.get(command, None)
+			if handler is None:
+				logging.error("Unable to handle command %s (paylen=%s)", command, paylen)
+				self.close()
+				return
+			self.incoming_handler = handler
+			logging.debug("received %s paylen %s", command, paylen)
+			self.set_terminator(paylen)
+			self.incoming_data = ""
 
-		if len(self.responses) == 0:
-			logging.debug("No reponses expected, closing connection")
-			self.close()
-			return
+	def pop_verack(self, data):
+		if len(data) > 0:
+			logging.error("received verack with len(payload) > 0")
+		return
 
-		while response in self.responses[:]:
-			result = response.consume(self)
-			if not result:
-				break
-			self.responses.pop(0)
-
-		#if len(self.rbuf) < self.wait_for_bytes:
-		#	logging.debug("handle read: not enough bytes to decode response header")
-		#	return
-
-		#data = self.rbuf[:self.wait_for_bytes]
-		#magic, command, paylen = struct.unpack(self.header_format, data)
-		#if magic != self.network:
-		#	logging.error("received magic version does not match configuration %s %s", magic.encode("hex_codec"), self.network.encode("hex_codec"))
-		#	self.close()
-		#	return
-
-		#if len(self.rbuf) < self.wait_for_bytes + paylen:
-		#	logging.debug("handle read: not enough bytes to decode response payload")
-		#	return
+	def pop_version(self, data):
+		version, services, timestamp, remote, local, nonce, last = struct.unpack("<iQQ26s26sQxL", data)
+		logging.debug("%s %s %s %s %s", version, services, timestamp, nonce, last)
+		self.remote = {
+			"version" : version,
+			"services" : services,
+			"timestamp" : timestamp,
+			"nonce" : nonce,
+			"last" : last
+		}
 
 def config_logging(args):
 	stream = sys.stdout
@@ -209,7 +199,7 @@ def main(args):
 
 	get_local_address()
 
-	BConnection(MAGIC["main"], LOCAL_SERVICES, (nodes[0], DEFAULT_PORT)) 
+	BConnection(MAGIC["main"], LOCAL_SERVICES, ("127.0.0.1", DEFAULT_PORT)) 
 
 	try: 
 		while True:
