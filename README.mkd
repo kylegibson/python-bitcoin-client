@@ -1,0 +1,5 @@
+python-bitcoin-client
+=
+
+HIGHLY experimental attempt at a native bitcoin client written in python
+
