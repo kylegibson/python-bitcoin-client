@@ -13,42 +13,19 @@ import base58
 import random
 import time
 
-CLIENT_ONLY = True
-
-MAGIC = {
-	"main" : 0xD9B4BEF9,
-	"test" : 0xDAB5BFFA
-}
-
-DEFAULT_PORT = 8333
-NODE_NETWORK = 1 << 0
-
-LOCAL_ADDRESS = None
-
-LOCAL_NONCE = random.getrandbits(64)
-
-VERSION = 32100
-
-LAST_BLOCK = 0
-GENESIS_BLOCK_HASH = 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
-
-DNS_SEED_ADDRESS = ["bitseed.xf2.org", "bitseed.bitcoin.org.uk"]
 LOGFILE = "node.log"
-LOGLEVEL =  logging.DEBUG
-
-LOCAL_SERVICES = 0
-if not CLIENT_ONLY:
-	LOCAL_SERVICES += NODE_NETWORK
+LOGLEVEL = logging.DEBUG
 
 class BConnection(asynchat.async_chat):
-	def __init__(self, network, services, addr):
+	def __init__(self, config, data, addr):
 		asynchat.async_chat.__init__(self)
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.connect(addr)
+		self.config = config
+		self.data = data
 		self.addr = addr
-		self.network = network
-		self.services = services
 		self.incoming_data = ""
+		self.remote = None
 		self.set_incoming_format()
 		self.push_version()
 		self.incoming_handler = None
@@ -67,6 +44,38 @@ class BConnection(asynchat.async_chat):
 
 	def collect_incoming_data(self, data):
 		self.incoming_data += data
+
+	def handle_connect(self):
+		logging.debug("connected to node %s", self.addr)
+
+	def found_terminator(self):
+		data = self.incoming_data
+		logging.debug("received packet %s %s", len(data), data.encode("hex_codec"))
+		if callable(self.incoming_handler):
+			if not self.incoming_handler(data):
+				self.incoming_data = ""
+				self.set_incoming_format()
+				self.incoming_handler = None
+		else:
+			network, command, paylen = self.unpack_incoming_data()
+			if network != self.config["network"]:
+				logging.error("received garbage from %s", connection.addr)
+				self.close()
+				return
+			command = command.strip('\0')
+			handler = self.incoming_handlers.get(command, None)
+			if handler is None:
+				logging.error("Unable to handle command %s (paylen=%s)", command, paylen)
+				self.close()
+				return
+			logging.debug("received %s paylen %s", command, paylen)
+			if paylen == 0:
+				handler(None)
+				self.set_incoming_format()
+			else:
+				self.incoming_handler = handler
+				self.set_terminator(paylen)
+			self.incoming_data = ""
 
 	def pack_string(self, s):
 		l = len(s)
@@ -96,65 +105,41 @@ class BConnection(asynchat.async_chat):
 		return data
 
 	def pack_address(self, addr, port):
-		data = struct.pack("<Q", self.services)
+		data = struct.pack("<Q", self.config["services"])
 		data += struct.pack("!10s2s4sH", "", "\xff" * 2, socket.inet_aton(addr), port)
 		return data
 
-	def push_packet(self, command, data):
-		header = struct.pack("<L12sL", self.network, command, len(data))
-		if command != "version":
+	def push_packet(self, command, data=""):
+		size = len(data)
+		header = struct.pack("<L12sL", self.config["network"], command, size)
+		if size > 0 and command not in ("version", "verack"):
 			h = base58.sha_256(base58.sha_256(data))
 			checksum = h[:4]
 			header += struct.pack("<L", checksum)
 		self.push(header)
-		logging.debug("header: %s (%s) %s", command, len(header), header.encode("hex_codec"))
-		self.push(data)
-		logging.debug("packet: (%s) %s", len(data), data.encode("hex_codec"))
+		logging.debug("push_packet header: %s (%s) %s", command, len(header), header.encode("hex_codec"))
+		if size > 0:
+			self.push(data)
+			logging.debug("packet: (%s) %s", size, data.encode("hex_codec"))
 
 	def push_version(self):
 		remote = self.pack_address(*self.addr)
-		local = self.pack_address(LOCAL_ADDRESS, DEFAULT_PORT)
-		data = struct.pack("<iQQ26s26sQxL", VERSION, self.services, int(time.time()),
-				remote, local, LOCAL_NONCE, LAST_BLOCK)
+		local = self.pack_address(self.config["local_address"], self.config["port"])
+		data = struct.pack("<iQQ26s26sQxL", 
+				self.config["version"], self.config["services"], 
+				int(time.time()), remote, local, 
+				self.config["nonce"], self.config["last_block"])
 		self.push_packet("version", data)
-	
-
-	def handle_connect(self):
-		logging.debug("connected to node %s", self.addr)
-
-	def found_terminator(self):
-		data = self.incoming_data
-		#logging.debug("received packet %s %s", len(data), data.encode("hex_codec"))
-		if callable(self.incoming_handler):
-			if not self.incoming_handler(data):
-				self.incoming_data = ""
-				self.set_incoming_format()
-				self.incoming_handler = None
-		else:
-			network, command, paylen = self.unpack_incoming_data()
-			if network != self.network:
-				logging.error("received garbage from %s", connection.addr)
-				self.close()
-				return
-			command = command.strip('\0')
-			handler = self.incoming_handlers.get(command, None)
-			if handler is None:
-				logging.error("Unable to handle command %s (paylen=%s)", command, paylen)
-				self.close()
-				return
-			self.incoming_handler = handler
-			logging.debug("received %s paylen %s", command, paylen)
-			self.set_terminator(paylen)
-			self.incoming_data = ""
-
-	def pop_verack(self, data):
-		if len(data) > 0:
-			logging.error("received verack with len(payload) > 0")
-		return
 
 	def pop_version(self, data):
+		if self.remote:
+			return
 		version, services, timestamp, remote, local, nonce, last = struct.unpack("<iQQ26s26sQxL", data)
-		logging.debug("%s %s %s %s %s", version, services, timestamp, nonce, last)
+		logging.debug("pop_version %s %s %s %s %s", version, services, timestamp, nonce, last)
+		if nonce == self.config["nonce"] and nonce > 1:
+			logging.error("Connected to self, disconnection")
+			self.close()
+			return
 		self.remote = {
 			"version" : version,
 			"services" : services,
@@ -162,6 +147,25 @@ class BConnection(asynchat.async_chat):
 			"nonce" : nonce,
 			"last" : last
 		}
+		if version >= 209:
+			self.push_verack()
+
+	def push_verack(self):
+		self.push_packet("verack")
+
+	def pop_verack(self, data):
+		logging.debug("pop_verack")
+		self.push_getaddr()
+
+	def push_getaddr(self):
+		logging.debug("push_getaddr")
+		self.push_packet("getaddr")
+
+	#def push_getblocks(self):
+	#	logging.debug("push_getblocks")
+	#	data = struct.pack("",
+	#		)
+	#	self.push_packet("getdata", data)
 
 def config_logging(args):
 	stream = sys.stdout
@@ -170,20 +174,18 @@ def config_logging(args):
 		format="[%s]" % args[0] + ' %(asctime)s - %(levelname)s - %(message)s'
 	)
 
-def get_seed_nodes():
+def get_seed_nodes(hosts):
 	nodes = []
-	for host in DNS_SEED_ADDRESS:
+	for host in hosts:
 		ips = socket.gethostbyname_ex(host)[2]	
 		nodes.extend(ips)
 	return nodes
 
-def get_local_address():
-	global LOCAL_ADDRESS
-	data = urllib2.urlopen("http://checkip.dyndns.org").read()
+def get_local_address(url):
+	data = urllib2.urlopen(url).read()
 	i = data.find(" ", data.find("Address:"))
 	j = data.find("<", i)
-	LOCAL_ADDRESS = data[i+1:j]
-	logging.debug("local address: %s", LOCAL_ADDRESS)
+	return data[i+1:j]
 
 def signal_handler(a, b):
 	thread.interrupt_main()
@@ -193,13 +195,26 @@ def main(args):
 	signal.signal(signal.SIGQUIT, signal_handler)
 	config_logging(args)
 
-	logging.debug("initializing %s", LOCAL_NONCE)
-	nodes = get_seed_nodes()
+	nonce = random.getrandbits(64)
+	logging.debug("initializing %s", nonce)
+
+	nodes = get_seed_nodes(["bitseed.xf2.org", "bitseed.bitcoin.org.uk"])
+
+	config = {
+		"version" : 32100,
+		"network" : 0xD9B4BEF9,
+		"services" : 0,
+		"local_address" : get_local_address("http://checkip.dyndns.org"),
+		"nonce" : nonce,
+		"port" : 8333,
+		"seed" : nodes,
+		"last_block" : 0
+	}
+
+	data = {}
+
 	logging.debug("seed nodes: %s", " ".join(nodes))
-
-	get_local_address()
-
-	BConnection(MAGIC["main"], LOCAL_SERVICES, ("127.0.0.1", DEFAULT_PORT)) 
+	BConnection(config, data, ("127.0.0.1", 8333)) 
 
 	try: 
 		while True:
