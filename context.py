@@ -1,5 +1,6 @@
 import time
 import logging
+import parser
 
 class Context:
 	def __init__(self, config, data):
@@ -9,6 +10,7 @@ class Context:
 		self.time_offset_list = [0]
 		self.time_offset_median_tolerance = 70 * 60
 		self.clock_error_displayed = False
+		self.parser = parser.BParser()
 
 	def add_node_address(self, addr):
 		self.data["nodes"][addr] = {}

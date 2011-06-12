@@ -79,7 +79,7 @@ def main(args):
 		for node in nodes:
 			data["nodes"][(node, config["default_port"])] = {}
 
-	#net.BConnection(("127.0.0.1", 8333), ctx) 
+	#net.BConnection(("::ffff:127.0.0.1", 8333), ctx) 
 	try: 
 		while True:
 			asyncore.loop(timeout=10,count=1)

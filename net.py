@@ -12,6 +12,7 @@ class BConnection(asynchat.async_chat):
 		self.header_format = "<L12sL"
 		self.header_size = struct.calcsize(self.header_format)
 		self.set_terminator(self.header_size)
+		self.last_seen = None
 		self.incoming_handlers = {
 			"version" : self.pop_version,
 			"verack" : self.pop_verack,
@@ -21,13 +22,8 @@ class BConnection(asynchat.async_chat):
 		self.reset_incoming_data()
 		self.push_version()
 
-	def unpack(self, fmt, data):
-		size = struct.calcsize(fmt)
-		data, rem = data[:size], data[size:]
-		return struct.unpack(fmt, data), rem
-
 	def unpack_incoming_header(self):
-		(network, command, paylen), data = self.unpack(self.header_format, self.incoming_data)
+		(network, command, paylen), data = self.context.parser.unpack(self.header_format, self.incoming_data)
 		self.incoming_data = data
 		command = command.strip('\0')
 		return network, command, paylen
@@ -36,14 +32,9 @@ class BConnection(asynchat.async_chat):
 		h = base58.checksum(data)
 		return h[:4]
 
-	def pack_checksum(self, data):
-		return struct.pack("<L", self.checksum(data))
-
-	def unpack_checksum(self, data):
-		return self.unpack("<L", data)
-
 	def collect_incoming_data(self, data):
 		self.incoming_data += data
+		self.last_seen = self.context.get_system_time()
 
 	def reset_incoming_data(self):
 		self.incoming_data = ""
@@ -79,48 +70,22 @@ class BConnection(asynchat.async_chat):
 			self.incoming_handler = handler
 			csize = 0
 			if command not in ("version", "verack"):
-				csize = struct.calcsize("<L") # checksum
+				csize = self.context.parser.get_checksum_size()
 			self.set_terminator(csize + paylen)
-
-	def pack_int(self, n):
-		if n < 0xfd:
-			return struct.pack("<B", n)
-		if n <= 0xffff:
-			return struct.pack("<BH", 0xfd, n)
-		if n <= 0xffffffff:
-			return struct.pack("<BL", 0xfe, n)
-		return struct.pack("<Q", 0xff, n)
-
-	def unpack_int(self, data):
-		m = struct.unpack("<B", data[:1])
-		if m == 0xff:
-			return struct.unpack("<Q", data[1:])
-		if m == 0xfe:
-			return struct.unpack("<L", data[1:])
-		if m == 0xfd:
-			return struct.unpack("<H", data[1:])
-		return m
-
-	def pack_address(self, addr, port):
-		data = struct.pack("<Q", self.context.config["services"])
-		if len(addr) > 4:
-			addr = socket.inet_aton(addr)
-		data += struct.pack("!10s2s4sH", "", "\xff\xff", addr, port)
-		return data
 
 	def push_packet(self, command, data=""):
 		size = len(data)
 		header = struct.pack("<L12sL", self.context.config["network"], command, size)
 		if size > 0 and command not in ("version", "verack"):
-			header += self.pack_checksum(data) 
+			header += self.pack_checksum(self.checksum(data))
 		self.push(header)
 		logging.debug("push_packet header: %s (%s)", command, len(header))
 		if size > 0:
 			self.push(data)
 
 	def push_version(self):
-		remote = self.pack_address(*self.addr)
-		local = self.pack_address(self.context.config["local_address"], self.context.config["port"])
+		remote = self.context.parser.pack_address(*self.addr)
+		local = self.context.parser.pack_address(self.context.config["local_address"], self.context.config["port"])
 		data = struct.pack("<iQQ26s26sQxL", 
 				self.context.config["version"], 
 				self.context.config["services"], 
@@ -135,7 +100,7 @@ class BConnection(asynchat.async_chat):
 		if self.remote:
 			return 
 		self.incoming_handler = None
-		pack, data = self.unpack("<iQQ26s26sQxL", self.incoming_data)
+		(pack,), data = self.context.parser.unpack("<iQQ26s26sQxL", self.incoming_data)
 		self.incoming_data = data
 		version, services, timestamp, remote, local, nonce, last = pack
 		logging.debug("pop_version %s %s %s %s %s", version, services, timestamp, nonce, last)
@@ -168,7 +133,7 @@ class BConnection(asynchat.async_chat):
 	def pop_addr(self):
 		logging.debug("pop_addr")
 		self.incoming_handler = None
-		checksum, data = self.unpack_checksum(self.incoming_data)
+		checksum, data = self.context.parser.unpack_checksum(self.incoming_data)
 		if checksum != self.checksum(data):
 			logging.error("checksum mismatch")
 			return True
