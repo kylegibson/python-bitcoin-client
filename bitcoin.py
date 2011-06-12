@@ -20,8 +20,6 @@ import context
 LOGFILE = "node.log"
 LOGLEVEL = logging.DEBUG
 
-
-
 def config_logging(args):
 	stream = sys.stdout
 	logging.basicConfig(stream=stream,
@@ -76,7 +74,7 @@ def main(args):
 	if config.get("irc", None) is not None:
 		seeder = irc.BIRCSeeder(ctx)
 	else:
-		config["local_address"] = get_local_address("http://91.198.22.70")
+		config["external_ip"] = get_external_ip("http://91.198.22.70")
 		nodes = get_seed_nodes(["bitseed.xf2.org", "bitseed.bitcoin.org.uk"])
 		for node in nodes:
 			data["nodes"][(node, config["default_port"])] = {}

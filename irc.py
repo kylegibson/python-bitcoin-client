@@ -56,8 +56,8 @@ class BIRCSeeder(asynchat.async_chat):
 	def recv_userhost(self):
 		at = self.incoming_data.find("@")
 		ip = self.incoming_data[at+1:]
-		logging.debug("found ip %s", ip)
-		self.context.config["local_address"] = ip
+		logging.debug("got external ip %s", ip)
+		self.context.config["external_ip"] = ip
 		nick = "u" + self.encode_address(ip, self.context.config["local_port"])
 		logging.debug("nick %s", nick)
 		self.push_nick(nick)
