@@ -8,6 +8,7 @@ import hashlib
 __b58chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 __b58base = len(__b58chars)
 
+
 def b58encode(v):
 	""" encode v, which is a string of bytes, to base58.		
 	"""
@@ -58,6 +59,9 @@ def b58decode(v, length):
 
 def sha_256(data):
 	return hashlib.sha256(data).digest()
+
+def checksum(data):
+	return sha_256(sha_256(data))
 
 def ripemd_160(data):
 	return hashlib.new("ripemd160", data).digest()

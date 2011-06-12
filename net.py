@@ -333,6 +333,7 @@ class BConnection(asynchat.async_chat):
 		}
 		if version >= 209:
 			self.push_verack()
+		self.add_time_data(timestamp)
 
 	def push_verack(self):
 		self.push_packet("verack")
