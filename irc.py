@@ -3,15 +3,15 @@ import asynchat
 import socket
 import struct
 import random
+import bitcoin
 
 import base58
 
 class BIRCSeeder(asynchat.async_chat):
-	def __init__(self, addr):
+	def __init__(self, config, data):
 		asynchat.async_chat.__init__(self)
-		ip, port = addr.split(":")
-		port = int(port)
-		self.addr = (ip, port)
+		self.config, self.data = config, data
+		self.addr = self.config["irc"]
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.connect(self.addr)
 		self.set_terminator("\r\n")
@@ -46,7 +46,7 @@ class BIRCSeeder(asynchat.async_chat):
 		logging.debug("connected to %s", self.addr)
 
 	def found_terminator(self):
-		logging.debug("received packet (%s) %s", len(self.incoming_data), self.incoming_data.strip())
+		#logging.debug("received packet (%s) %s", len(self.incoming_data), self.incoming_data.strip())
 		parts = self.incoming_data.split(" ", 2)
 		handler = self.handlers.get(parts[1], None)
 		if callable(handler):
@@ -57,7 +57,8 @@ class BIRCSeeder(asynchat.async_chat):
 		at = self.incoming_data.find("@")
 		ip = self.incoming_data[at+1:]
 		logging.debug("found ip %s", ip)
-		nick = "u" + self.encode_address(ip, 8333)
+		self.config["local_address"] = ip
+		nick = "u" + self.encode_address(ip, self.config["local_port"])
 		logging.debug("nick %s", nick)
 		self.push_nick(nick)
 		self.push_crlf("JOIN #bitcoin")
@@ -72,7 +73,8 @@ class BIRCSeeder(asynchat.async_chat):
 		if not decode:
 			return
 		ip, port = decode
-		logging.debug("received who %s:%s", ip, port)
+		self.data["nodes"][decode] = {}
+		logging.debug("received who %s", decode)
 
 	def recv_join(self):
 		ex = self.incoming_data.find("!")
