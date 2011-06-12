@@ -8,10 +8,10 @@ import bitcoin
 import base58
 
 class BIRCSeeder(asynchat.async_chat):
-	def __init__(self, config, data):
+	def __init__(self, context):
 		asynchat.async_chat.__init__(self)
-		self.config, self.data = config, data
-		self.addr = self.config["irc"]
+		self.context = context
+		self.addr = self.context.config["irc"]
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.connect(self.addr)
 		self.set_terminator("\r\n")
@@ -57,36 +57,32 @@ class BIRCSeeder(asynchat.async_chat):
 		at = self.incoming_data.find("@")
 		ip = self.incoming_data[at+1:]
 		logging.debug("found ip %s", ip)
-		self.config["local_address"] = ip
-		nick = "u" + self.encode_address(ip, self.config["local_port"])
+		self.context.config["local_address"] = ip
+		nick = "u" + self.encode_address(ip, self.context.config["local_port"])
 		logging.debug("nick %s", nick)
 		self.push_nick(nick)
 		self.push_crlf("JOIN #bitcoin")
 		self.push_crlf("WHO #bitcoin")
 
-	def recv_who(self):
-		parts = self.incoming_data.split(" ")
-		name = parts[7]
+	def add_decoded_address(self, name):
 		if name[0] != "u":
 			return
 		decode = self.decode_address(name)
 		if not decode:
 			return
 		ip, port = decode
-		self.data["nodes"][decode] = {}
-		logging.debug("received who %s", decode)
+		logging.debug("added %s:%s", socket.inet_ntoa(ip), port)
+		self.context.add_node_address(decode)
+
+	def recv_who(self):
+		parts = self.incoming_data.split(" ")
+		self.add_decoded_address(parts[7])
 
 	def recv_join(self):
 		ex = self.incoming_data.find("!")
 		name = self.incoming_data[1:ex]
 		logging.debug("received join %s", name)
-		if name[0] != "u":
-			return
-		decode = self.decode_address(name)
-		if not decode:
-			return
-		ip, port = decode
-		logging.debug("received join %s:%s", ip, port)
+		self.add_decoded_address(name)
 
 	def encode_address(self, ip, port):
 		ip = socket.inet_aton(ip)
@@ -102,7 +98,8 @@ class BIRCSeeder(asynchat.async_chat):
 		if h != base58.checksum(data)[:len(h)]:
 			logging.debug("checksum failure")
 			return None
-		ip = socket.inet_ntoa(data[:4])
+		#ip = socket.inet_ntoa(data[:4])
+		ip = data[:4]
 		(port,) = struct.unpack("!H", data[4:6])
 		return ip, port
 

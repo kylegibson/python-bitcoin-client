@@ -9,6 +9,12 @@ class Context:
 		self.time_offset_list = [0]
 		self.time_offset_median_tolerance = 70 * 60
 		self.clock_error_displayed = False
+
+	def add_node_address(self, addr):
+		self.data["nodes"][addr] = {}
+
+	def get_last_block(self):
+		return len(self.data["blocks"]) - 1
 	
 	def get_system_time(self):
 		return int(time.time())
@@ -28,7 +34,7 @@ class Context:
 			median = self.time_offset_list[l/2]
 			if abs(median) < self.time_offset_median_tolerance:
 				self.time_offset = median
-			else
+			else:
 				self.time_offset = 0
 				match = False
 				for offset in self.time_offset_list:

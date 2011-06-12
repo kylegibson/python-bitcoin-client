@@ -71,21 +71,21 @@ def main(args):
 		]
 	}
 
-	context = context.Context(config, data)
+	ctx = context.Context(config, data)
 
 	if config.get("irc", None) is not None:
-		seeder = irc.BIRCSeeder(context)
+		seeder = irc.BIRCSeeder(ctx)
 	else:
 		config["local_address"] = get_local_address("http://91.198.22.70")
 		nodes = get_seed_nodes(["bitseed.xf2.org", "bitseed.bitcoin.org.uk"])
 		for node in nodes:
 			data["nodes"][(node, config["default_port"])] = {}
 
-	#net.BConnection(("127.0.0.1", 8333), context) 
+	#net.BConnection(("127.0.0.1", 8333), ctx) 
 	try: 
 		while True:
 			asyncore.loop(timeout=10,count=1)
-			logging.debug("loop")
+			logging.debug("loop %s", len(ctx.data["nodes"]))
 			time.sleep(0.01)
 	except KeyboardInterrupt:
 		logging.debug("received interrupt signal, stopping")

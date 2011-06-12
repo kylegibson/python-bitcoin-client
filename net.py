@@ -1,7 +1,6 @@
 import asynchat
 import struct
 import logging
-import time
 
 class BConnection(asynchat.async_chat):
 	def __init__(self, addr, context):
@@ -34,7 +33,7 @@ class BConnection(asynchat.async_chat):
 		return network, command, paylen
 
 	def checksum(self, data):
-		h = base58.sha_256(base58.sha_256(data))
+		h = base58.checksum(data)
 		return h[:4]
 
 	def pack_checksum(self, data):
@@ -125,11 +124,11 @@ class BConnection(asynchat.async_chat):
 		data = struct.pack("<iQQ26s26sQxL", 
 				self.context.config["version"], 
 				self.context.config["services"], 
-				int(time.time()), 
+				context.get_system_time(),
 				remote, 
 				local, 
 				self.context.config["nonce"], 
-				len(self.context.data["blocks"])-1)
+				self.context.get_last_block())
 		self.push_packet("version", data)
 
 	def pop_version(self):
@@ -152,6 +151,7 @@ class BConnection(asynchat.async_chat):
 		}
 		if version >= 209:
 			self.push_verack()
+		self.context.add_time_delta(0, timestamp)
 
 	def push_verack(self):
 		self.push_packet("verack")
