@@ -59,14 +59,11 @@ def main(args):
 		"local_port" : 8333,
 		"default_port" : 8333,
 		"irc" : ("92.243.23.21",6667),
+		"genesis_hash" : 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f,
 	}
 	data = {
 		"nodes" : {},
-		"blocks" : [
-			{
-				"hash" : 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f,
-			}
-		]
+		"blocks" : []
 	}
 
 	ctx = context.Context(config, data)
