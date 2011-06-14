@@ -1,4 +1,5 @@
 import asynchat
+import socket
 import struct
 import logging
 
@@ -7,6 +8,7 @@ class BConnection(asynchat.async_chat):
 		asynchat.async_chat.__init__(self)
 		self.context, self.addr = context, addr
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+		logging.debug("connecting to address %s", addr)
 		self.connect(addr)
 		self.remote = None
 		self.header_format = "<L12sL"
@@ -84,12 +86,17 @@ class BConnection(asynchat.async_chat):
 			self.push(data)
 
 	def push_version(self):
-		remote = self.context.parser.pack_address(*self.addr)
-		local = self.context.parser.pack_address(self.context.config["local_address"], self.context.config["port"])
+		remote = self.context.parser.pack_address(
+				self.context.config["services"],
+				self.addr[0], self.addr[1])
+		local = self.context.parser.pack_address(
+				self.context.config["services"],
+				self.context.config["external_ip"], 
+				self.context.config["local_port"])
 		data = struct.pack("<iQQ26s26sQxL", 
 				self.context.config["version"], 
 				self.context.config["services"], 
-				context.get_system_time(),
+				self.context.get_system_time(),
 				remote, 
 				local, 
 				self.context.config["nonce"], 

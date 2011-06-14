@@ -55,9 +55,10 @@ class BIRCSeeder(asynchat.async_chat):
 
 	def recv_userhost(self):
 		at = self.incoming_data.find("@")
-		ip = self.incoming_data[at+1:]
-		logging.debug("got external ip %s", ip)
-		self.context.config["external_ip"] = ip
+		ip = self.incoming_data[at+1:].strip()
+		logging.debug("got external ip '%s'", ip)
+		self.context.set_external_ip(ip)
+
 		nick = "u" + self.encode_address(ip, self.context.config["local_port"])
 		logging.debug("nick %s", nick)
 		self.push_nick(nick)
@@ -72,7 +73,7 @@ class BIRCSeeder(asynchat.async_chat):
 			return
 		ip, port = decode
 		logging.debug("added %s:%s", socket.inet_ntoa(ip), port)
-		self.context.add_node_address(decode)
+		self.context.add_node_address((socket.inet_ntoa(ip), port))
 
 	def recv_who(self):
 		parts = self.incoming_data.split(" ")
@@ -81,7 +82,6 @@ class BIRCSeeder(asynchat.async_chat):
 	def recv_join(self):
 		ex = self.incoming_data.find("!")
 		name = self.incoming_data[1:ex]
-		logging.debug("received join %s", name)
 		self.add_decoded_address(name)
 
 	def encode_address(self, ip, port):

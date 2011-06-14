@@ -40,9 +40,10 @@ class BParser:
 		size, data = self.unpack_variable_int(data)
 		return data[:size], data[size:]
 
-	def pack_address(self, addr, port):
+	def pack_address(self, services, addr, port):
+		addr = "::ffff:"+addr
 		addr = socket.inet_pton(socket.AF_INET6, addr)
-		return struct.pack("<Q16s", self.context.config["services"], addr) + struct.pack("!H", port)
+		return struct.pack("<Q", services) + addr + struct.pack("!H", port)
 
 	def unpack_address(self, data):
 		(services, addr), data = self.unpack("<Q16s", data)
