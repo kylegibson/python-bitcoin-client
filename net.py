@@ -44,6 +44,13 @@ class BConnection(asynchat.async_chat):
 	def handle_connect(self):
 		logging.debug("connected to node %s", self.addr)
 
+	def handle_expt(self):
+		if not self.connected:
+			logging.debug("connection refused to %s", self.addr)
+		else:
+			logging.exception()
+		self.close()
+
 	def found_terminator(self):
 		logging.debug("received packet %s", len(self.incoming_data))
 		if callable(self.incoming_handler):
@@ -56,7 +63,7 @@ class BConnection(asynchat.async_chat):
 				self.close()
 			return
 		network, command, paylen = self.unpack_incoming_header()
-		if network != self.content.config["network"]:
+		if network != self.context.config["network"]:
 			logging.error("received garbage from %s", connection.addr)
 			self.close()
 			return
@@ -91,7 +98,7 @@ class BConnection(asynchat.async_chat):
 				self.addr[0], self.addr[1])
 		local = self.context.parser.pack_address(
 				self.context.config["services"],
-				self.context.config["external_ip"], 
+				self.context.get_external_address(),
 				self.context.config["local_port"])
 		data = struct.pack("<iQQ26s26sQxL", 
 				self.context.config["version"], 
@@ -107,9 +114,9 @@ class BConnection(asynchat.async_chat):
 		if self.remote:
 			return 
 		self.incoming_handler = None
-		(pack,), data = self.context.parser.unpack("<iQQ26s26sQxL", self.incoming_data)
+		result, data = self.context.parser.unpack("<iQQ26s26sQxL", self.incoming_data)
 		self.incoming_data = data
-		version, services, timestamp, remote, local, nonce, last = pack
+		version, services, timestamp, remote, local, nonce, last = result
 		logging.debug("pop_version %s %s %s %s %s", version, services, timestamp, nonce, last)
 		if nonce == self.context.config["nonce"] and nonce > 1:
 			logging.error("Connected to self, disconnecting")

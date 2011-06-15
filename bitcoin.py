@@ -66,7 +66,25 @@ def initialize_configuration():
 	if options.nodes:
 		options.irc = ""
 		options.dns = ""
-		options.add_nodes = []
+		options.add_nodes = ""
+
+	nodes = []
+	for node in options.nodes.split(","):
+		if not node:
+			continue
+		ip, port = node.split(":")
+		nodes.append((ip, int(port)))
+
+	for node in options.add_nodes.split(","):
+		if not node:
+			continue
+		ip, port = node.split(":")
+		nodes.append((ip, int(port)))
+
+	irc = None
+	if options.irc:
+		irc_ip, irc_port = options.irc.split(":")
+		irc = (irc_ip, int(irc_port))
 
 	config = {
 		"boot" : time.time(),
@@ -80,15 +98,13 @@ def initialize_configuration():
 		"local_port" : options.port,
 		"external_ip" : options.external_ip,
 		"irc_timeout" : options.irc_timeout,
-		"dns_seed" : options.dns.split(","),
+		"dns_seed" : options.dns.split(",") if options.dns else [],
 		"genesis_hash" : genesis_hash,
 		"event_loop_sleep" : 0.01,
 		"event_loop_timeout" : 10,
-		"nodes" : options.nodes + options.add_nodes,
+		"nodes" : nodes,
+		"irc" : irc,
 	}
-	if options.irc:
-		irc_ip, irc_port = options.irc.split(":")
-		config["irc"] = (irc_ip, int(irc_port))
 
 	return config
 
