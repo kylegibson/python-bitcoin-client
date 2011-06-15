@@ -47,7 +47,7 @@ class BParser:
 
 	def unpack_address(self, data):
 		(services, addr), data = self.unpack("<Q16s", data)
-		(port, ), data = self.unpack("!H", data)
+		(port,), data = self.unpack("!H", data)
 		return (services, addr, port), data
 
 	def get_checksum_size(self):
@@ -59,3 +59,33 @@ class BParser:
 	def unpack_checksum(self, data):
 		(checksum,), data = self.unpack("<L", data)
 		return checksum, data
+
+	def unpack_block(self, data):
+		original = data
+		result, data = self.unpack("<L32B32BLLL", data)
+		version, pblock, merkle, timestamp, bits, nonce = result
+		size, data = self.unpack_variable_int(data)
+		transactions = []
+		for i in range(size):
+			tx, data = self.unpack_transaction(data)
+			transactions.append(tx)
+		block = (version, pblock, merkle, timestamp, bits, nonce, transactions)
+		return block, data
+
+	def unpack_transaction(self, data):
+		o = data
+		(version,), data = self.unpack("<L", data)
+		tx_in_count, data = self.unpack_variable_int(data)
+		tx_in = []
+		for i in range(tx_in_count):
+			tx_in.append(data[:41])
+			data = data[41:]
+		tx_out_count, data = self.unpack_variable_int(data)
+		tx_out = []
+		for i in range(tx_out_count):
+			tx_in.append(data[:8])
+			data = data[8:]
+		(lock_time,), data = self.unpack("<L", data)
+		tx = (version, tx_in, tx_out, lock_time)
+		return tx, data
+

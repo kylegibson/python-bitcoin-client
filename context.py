@@ -51,12 +51,10 @@ class Context:
 		if self.config.get("irc", None):
 			birc = irc.BIRCSeeder(self)
 			uptime_wait = 10
-
 		nodes = []
 		if self.config["nodes"]:
 			for node in self.config["nodes"]:
 				self.add_node_address(node)
-
 		uptime = self.get_uptime()
 		delta = 0
 		while True:

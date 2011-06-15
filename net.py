@@ -2,6 +2,7 @@ import asynchat
 import socket
 import struct
 import logging
+import base58
 
 class BConnection(asynchat.async_chat):
 	def __init__(self, addr, context):
@@ -19,6 +20,7 @@ class BConnection(asynchat.async_chat):
 			"version" : self.pop_version,
 			"verack" : self.pop_verack,
 			"addr" : self.pop_addr,
+			"block" : self.pop_block,
 		}
 		self.incoming_handler = None
 		self.reset_incoming_data()
@@ -86,7 +88,7 @@ class BConnection(asynchat.async_chat):
 		size = len(data)
 		header = struct.pack("<L12sL", self.context.config["network"], command, size)
 		if size > 0 and command not in ("version", "verack"):
-			header += self.pack_checksum(self.checksum(data))
+			header += self.checksum(data)
 		self.push(header)
 		logging.debug("push_packet header: %s (%s)", command, len(header))
 		if size > 0:
@@ -100,7 +102,7 @@ class BConnection(asynchat.async_chat):
 				self.context.config["services"],
 				self.context.get_external_address(),
 				self.context.config["local_port"])
-		data = struct.pack("<iQQ26s26sQxL", 
+		data = struct.pack("<LQQ26s26sQxL", 
 				self.context.config["version"], 
 				self.context.config["services"], 
 				self.context.get_system_time(),
@@ -114,7 +116,7 @@ class BConnection(asynchat.async_chat):
 		if self.remote:
 			return 
 		self.incoming_handler = None
-		result, data = self.context.parser.unpack("<iQQ26s26sQxL", self.incoming_data)
+		result, data = self.context.parser.unpack("<LQQ26s26sQxL", self.incoming_data)
 		self.incoming_data = data
 		version, services, timestamp, remote, local, nonce, last = result
 		logging.debug("pop_version %s %s %s %s %s", version, services, timestamp, nonce, last)
@@ -138,7 +140,8 @@ class BConnection(asynchat.async_chat):
 	def pop_verack(self):
 		logging.debug("pop_verack")
 		self.incoming_handler = None
-		self.push_getaddr()
+		#self.push_getaddr()
+		self.push_getblocks([self.context.config["genesis_hash"]])
 
 	def push_getaddr(self):
 		logging.debug("push_getaddr")
@@ -147,12 +150,32 @@ class BConnection(asynchat.async_chat):
 	def pop_addr(self):
 		logging.debug("pop_addr")
 		self.incoming_handler = None
-		checksum, data = self.context.parser.unpack_checksum(self.incoming_data)
+		checksum, data = self.incoming_data[:4], self.incoming_data[4:]
 		if checksum != self.checksum(data):
 			logging.error("checksum mismatch")
 			return True
 		logging.debug("checksum matches")
 
-	def push_getblocks(self):
-		pass	
+	def push_getblocks(self,hash_starts,hash_stop=None):
+		if not hash_stop:
+			hash_stop = "\0" * 32
+		starts = "".join(hash_starts)
+		vector = self.context.parser.pack_variable_int(len(hash_starts)) + starts
+		data = struct.pack("<i", self.context.config["version"])
+		self.push_packet("getblocks", data + vector + hash_stop)
+
+	def pop_block(self):
+		logging.debug("pop_block")
+		self.incoming_handler = None
+		checksum, data = self.incoming_data[:4], self.incoming_data[4:]
+		real_checksum = self.checksum(data)
+		logging.debug("%s %s", checksum.encode("hex_codec"), real_checksum.encode("hex_codec"))
+		if checksum != real_checksum:
+			logging.error("checksum mismatch")
+			return True
+		logging.debug("checksum matches")
+		h = base58.checksum(data[:4+32+32+4+4+4])
+		block, data = self.context.parser.unpack_block(data)
+		logging.debug("block: %s %s", h.encode("hex_codec"), block)
+		self.incoming_data = data
 

@@ -57,10 +57,10 @@ def initialize_configuration():
 
 	(options, args) = parser.parse_args()
 
-	genesis_hash = 0x000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f
+	genesis_hash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
 	network = 0xD9B4BEF9
 	if options.test:
-		genesis_hash = 0x00000007199508e34a9ff81e6ec0c477a4cccff2a4767a8eee39c11db367b008
+		genesis_hash = "00000007199508e34a9ff81e6ec0c477a4cccff2a4767a8eee39c11db367b008"
 		network = 0xDAB5BFFA
 
 	if options.nodes:
@@ -99,7 +99,7 @@ def initialize_configuration():
 		"external_ip" : options.external_ip,
 		"irc_timeout" : options.irc_timeout,
 		"dns_seed" : options.dns.split(",") if options.dns else [],
-		"genesis_hash" : genesis_hash,
+		"genesis_hash" : genesis_hash.decode("hex_codec")[::-1],
 		"event_loop_sleep" : 0.01,
 		"event_loop_timeout" : 10,
 		"nodes" : nodes,
