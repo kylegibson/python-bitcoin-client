@@ -99,13 +99,12 @@ def initialize_configuration():
 		"external_ip" : options.external_ip,
 		"irc_timeout" : options.irc_timeout,
 		"dns_seed" : options.dns.split(",") if options.dns else [],
-		"genesis_hash" : genesis_hash.decode("hex_codec")[::-1],
+		"genesis_hash" : genesis_hash.decode("hex_codec"),
 		"event_loop_sleep" : 0.01,
 		"event_loop_timeout" : 10,
 		"nodes" : nodes,
 		"irc" : irc,
 	}
-
 	return config
 
 def main():

@@ -89,3 +89,8 @@ class BParser:
 		tx = (version, tx_in, tx_out, lock_time)
 		return tx, data
 
+	def unpack_inv(self, data):
+		(hash_type,), data = self.unpack("<L", data)
+		hash_val = data[:32]
+		return (hash_type, hash_val[::-1]), data[32:]
+

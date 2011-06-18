@@ -12,8 +12,9 @@ import parser
 class Context:
 	def __init__(self, config):
 		self.config = config
-		self.blocks = []
-		self.nodes = []
+		self.blocks = {}
+		self.transactions = {}
+		self.nodes = set()
 		self.addresses = [set(), set()] # Pending, All
 		self.time_offset = 0
 		self.time_ip_set = set()
@@ -21,7 +22,8 @@ class Context:
 		self.time_offset_median_tolerance = 70 * 60
 		self.clock_error_displayed = False
 		self.parser = parser.BParser()
-		self.nodes = set()
+
+	#def load_blocks(self):
 
 	def get_dns_nodes(self):
 		for host in self.config["dns_seed"]:
@@ -51,7 +53,6 @@ class Context:
 		if self.config.get("irc", None):
 			birc = irc.BIRCSeeder(self)
 			uptime_wait = 10
-		nodes = []
 		if self.config["nodes"]:
 			for node in self.config["nodes"]:
 				self.add_node_address(node)
