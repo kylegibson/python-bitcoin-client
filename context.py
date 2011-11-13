@@ -22,8 +22,10 @@ class Context:
 		self.time_offset_median_tolerance = 70 * 60
 		self.clock_error_displayed = False
 		self.parser = parser.BParser()
+		self.locks = {}
 
-	#def load_blocks(self):
+	def load_blocks(self):
+		pass
 
 	def get_dns_nodes(self):
 		for host in self.config["dns_seed"]:
@@ -46,23 +48,53 @@ class Context:
 				continue
 			self.add_node_address((ip, config["default_port"]))
 
+	def seed_config_nodes(self):
+		if self.config["nodes"]:
+			for addr in self.config["nodes"]:
+				self.add_node_address(addr)
+
+	def loop_network(self):
+		while True:
+			before = time.time()
+			asyncore.loop(timeout=self.config["event_loop_timeout"], count=1)
+			yield
+			sleep = time.time() - before
+			if sleep > 0:
+				time.sleep(sleep)
+
+	def event_looper(self, **kwargs):
+		uptime = self.get_uptime()
+		delta = 0
+		while True:
+			yield
+			delta += self.get_uptime() - uptime
+			uptime = self.get_uptime()
+			if delta <= 1: 
+				continue
+
 	def event_loop(self):
+		self.seed_config_nodes()
+		event_looper = self.event_looper()
+		event_looper()
+
+		loop_network = self.loop_network()
+
 		bootstrap = True
 		birc = None
 		uptime_wait = 1
 		if self.config.get("irc", None):
 			birc = irc.BIRCSeeder(self)
 			uptime_wait = 10
-		if self.config["nodes"]:
-			for node in self.config["nodes"]:
-				self.add_node_address(node)
-		uptime = self.get_uptime()
-		delta = 0
+
 		while True:
-			asyncore.loop(timeout=self.config["event_loop_timeout"],count=1)
-			time.sleep(self.config["event_loop_sleep"])
-			delta += self.get_uptime() - uptime
-			uptime = self.get_uptime()
+			loop_network()
+
+			event_looper()
+
+
+			looper()
+
+
 			if bootstrap and uptime > uptime_wait and delta > 1:
 				delta = 0
 				eip = self.config.get("external_ip", None)
@@ -82,13 +114,26 @@ class Context:
 						ip = self.get_external_ip_using_http()
 						self.set_external_ip(ip)
 					bootstrap = False
-			elif not bootstrap and delta > 1:
+
+
+			if not bootstrap and delta > 1:
 				if len(self.nodes) < self.config["maxconnections"]:
 					if len(self.addresses[0]) > 0:
 						self.create_node_connection()
 					elif len(self.addresses[1]) == 0:
 						logging.error("No addresses available")
 						time.sleep(5)
+			if not bootstrap and delta > 5:
+				node = self.nodes[:]
+				for node in nodes:
+					delta = self.get_system_time() - node.last_seen
+					if delta > 
+					
+				for key in self.locks:
+					node, start, timeout = self.locks[key]
+					delta = self.get_system_time() - start
+					if not node.connected or delta >= timeout:
+						
 
 	def create_node_connection(self):
 		if len(self.addresses[0]) == 0:

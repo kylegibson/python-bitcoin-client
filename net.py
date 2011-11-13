@@ -7,7 +7,7 @@ import base58
 class BConnection(asynchat.async_chat):
 	def __init__(self, addr, context):
 		asynchat.async_chat.__init__(self)
-		self.context, self.addr = context, addr
+		self.context = context
 		self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
 		logging.debug("connecting to address %s", addr)
 		self.connect(addr)
@@ -17,11 +17,11 @@ class BConnection(asynchat.async_chat):
 		self.set_terminator(self.header_size)
 		self.last_seen = None
 		self.incoming_handlers = {
-			"version" : self.pop_version,
-			"verack" : self.pop_verack,
-			"addr" : self.pop_addr,
-			"block" : self.pop_block,
-			"inv" : self.pop_inv,
+			"version"		: self.pop_version,
+			"verack"		: self.pop_verack,
+			"addr"			: self.pop_addr,
+			"block"			: self.pop_block,
+			"inv"				: self.pop_inv,
 		}
 		self.incoming_handler = None
 		self.reset_incoming_data()
@@ -120,8 +120,7 @@ class BConnection(asynchat.async_chat):
 				self.context.config["version"], 
 				self.context.config["services"], 
 				self.context.get_system_time(),
-				remote, 
-				local, 
+				remote, local, 
 				self.context.config["nonce"], 
 				self.context.get_last_block())
 		self.push_packet("version", data)
@@ -154,7 +153,15 @@ class BConnection(asynchat.async_chat):
 	def pop_verack(self):
 		logging.debug("pop_verack")
 		self.incoming_handler = None
-		logging.debug
+		if not self.context.blocks:
+			self.bootstrap()
+
+	def bootstrap():
+		if not self.locks.get("bootstrap", None):
+			self.locks["bootstrap"] = (self, self.context.get_system_time(), 30)
+
+
+
 		self.push_getblocks([self.context.config["genesis_hash"]])
 
 	def push_getaddr(self):

@@ -113,6 +113,7 @@ def main():
 	initialize_logging()
 	ctx = context.Context(initialize_configuration())
 	logging.debug("initializing")
+	ctx.load_blocks()
 	try: ctx.event_loop()
 	except KeyboardInterrupt:
 		logging.debug("received interrupt signal, stopping")
